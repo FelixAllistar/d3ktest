@@ -1,0 +1,278 @@
+name: Test dev3000 on All Platforms
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-windows:
+    name: Windows Latest
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Install app dependencies
+        run: pnpm install
+
+      - name: Install dev3000 globally (original version)
+        run: pnpm install -g dev3000
+
+      - name: Run dev3000 --servers-only and capture output
+        shell: pwsh
+        run: |
+          # Run dev3000 synchronously to capture all stdout/stderr
+          # It should fail quickly due to lsof issues, printing the expected messages
+          d3k --servers-only
+        continue-on-error: true  # Let the job continue even if dev3000 exits with error, so we can check logs
+
+      - name: Check for log file and display contents
+        shell: pwsh
+        if: always()  # Run even if previous step failed
+        run: |
+          # Find the latest dev3000 log in temp dir (Windows uses $env:TEMP)
+          $tempDir = $env:TEMP
+          $logPattern = "${tempDir}\dev3000-logs\dev3000-*.log"
+          $latestLog = Get-ChildItem -Path $logPattern -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if ($latestLog) {
+            Write-Output "Found log file: $($latestLog.FullName)"
+            Write-Output "--- LOG CONTENTS ---"
+            Get-Content $latestLog.FullName
+            Write-Output "--- END LOG ---"
+            
+            # Check for specific error indicators in log or output (for confirmation)
+            $logContent = Get-Content $latestLog.FullName -Raw
+            if ($logContent -match "kill: not enough arguments" -or $logContent -match "dev3000 exited due to server failure") {
+              Write-Output "✅ Bug confirmed: lsof-related failure detected in log."
+            } else {
+              Write-Output "❌ No expected bug indicators found in log."
+            }
+          } else {
+            Write-Output "No dev3000 log file found in $tempDir\dev3000-logs\"
+          }
+
+  test-ubuntu:
+    name: Ubuntu Latest  
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Install app dependencies
+        run: pnpm install
+
+      - name: Install dev3000 globally (original version)
+        run: pnpm install -g dev3000
+
+      - name: Run dev3000 --servers-only and test startup
+        shell: bash
+        run: |
+          # Start dev3000 in background and test startup on Linux
+          d3k --servers-only > d3k_output.log 2>&1 &
+          DEV_PID=$!
+          echo "d3k PID: $DEV_PID"
+          
+          # Wait for startup
+          sleep 30
+          
+          # Check if MCP server is running
+          if curl -f -s http://localhost:3684/logs > /dev/null; then
+            echo "✅ MCP server started successfully on Ubuntu"
+          else
+            echo "❌ MCP server failed to start"
+            cat d3k_output.log
+            exit 1
+          fi
+          
+          # Display output
+          echo "--- d3k OUTPUT ---"
+          cat d3k_output.log
+          echo "--- END OUTPUT ---"
+          
+          # Gracefully stop dev3000
+          kill $DEV_PID
+          wait $DEV_PID || true
+
+      - name: Check for log file and display contents
+        shell: bash
+        if: always()
+        run: |
+          # Find the latest dev3000 log in temp dir (Linux uses /tmp)
+          tempDir="/tmp"
+          logPattern="${tempDir}/dev3000-logs/dev3000-*.log"
+          if ls $logPattern &> /dev/null; then
+            latestLog=$(ls -t $logPattern | head -n 1)
+            echo "Found log file: $latestLog"
+            echo "--- LOG CONTENTS ---"
+            cat "$latestLog"
+            echo "--- END LOG ---"
+          else
+            echo "No dev3000 log file found in $tempDir/dev3000-logs/"
+          fi
+
+  test-alpine:
+    name: Alpine Linux
+    runs-on: ubuntu-latest
+    container: alpine:latest
+    steps:
+      - name: Install system dependencies
+        run: |
+          apk update
+          apk add --no-cache nodejs npm git bash curl lsof
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Install app dependencies
+        run: pnpm install
+
+      - name: Install dev3000 globally (original version)
+        run: pnpm install -g dev3000
+
+      - name: Run dev3000 --servers-only and test startup
+        shell: bash
+        run: |
+          # Start dev3000 in background and test startup on Alpine
+          d3k --servers-only > d3k_output.log 2>&1 &
+          DEV_PID=$!
+          echo "d3k PID: $DEV_PID"
+          
+          # Wait for startup
+          sleep 30
+          
+          # Check if MCP server is running
+          if curl -f -s http://localhost:3684/logs > /dev/null; then
+            echo "✅ MCP server started successfully on Alpine"
+          else
+            echo "❌ MCP server failed to start"
+            cat d3k_output.log
+            exit 1
+          fi
+          
+          # Display output
+          echo "--- d3k OUTPUT ---"
+          cat d3k_output.log
+          echo "--- END OUTPUT ---"
+          
+          # Gracefully stop dev3000
+          kill $DEV_PID
+          wait $DEV_PID || true
+
+      - name: Check for log file and display contents
+        shell: bash
+        if: always()
+        run: |
+          # Find the latest dev3000 log in temp dir (Alpine uses /tmp)
+          tempDir="/tmp"
+          logPattern="${tempDir}/dev3000-logs/dev3000-*.log"
+          if ls $logPattern &> /dev/null; then
+            latestLog=$(ls -t $logPattern | head -n 1)
+            echo "Found log file: $latestLog"
+            echo "--- LOG CONTENTS ---"
+            cat "$latestLog"
+            echo "--- END LOG ---"
+          else
+            echo "No dev3000 log file found in $tempDir/dev3000-logs/"
+          fi
+
+  test-centos:
+    name: CentOS Stream 9
+    runs-on: ubuntu-latest
+    container: quay.io/centos/centos:stream9
+    steps:
+      - name: Install system dependencies
+        run: |
+          dnf update -y
+          dnf install -y git lsof --allowerasing
+          # Install newer Node.js from NodeSource
+          curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
+          dnf install -y nodejs
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Install app dependencies
+        run: pnpm install
+
+      - name: Install dev3000 globally (original version)
+        run: pnpm install -g dev3000
+
+      - name: Run dev3000 --servers-only and test startup
+        shell: bash
+        run: |
+          # Start dev3000 in background and test startup on CentOS
+          d3k --servers-only > d3k_output.log 2>&1 &
+          DEV_PID=$!
+          echo "d3k PID: $DEV_PID"
+          
+          # Wait for startup
+          sleep 30
+          
+          # Check if MCP server is running using built-in tools
+          if command -v curl > /dev/null && curl -f -s http://localhost:3684/logs > /dev/null; then
+            echo "✅ MCP server started successfully on CentOS"
+          elif command -v wget > /dev/null && wget -q --spider http://localhost:3684/logs; then
+            echo "✅ MCP server started successfully on CentOS (via wget)"
+          else
+            echo "❌ MCP server failed to start"
+            cat d3k_output.log
+            exit 1
+          fi
+          
+          # Display output
+          echo "--- d3k OUTPUT ---"
+          cat d3k_output.log
+          echo "--- END OUTPUT ---"
+          
+          # Gracefully stop dev3000
+          kill $DEV_PID
+          wait $DEV_PID || true
+
+      - name: Check for log file and display contents
+        shell: bash
+        if: always()
+        run: |
+          # Find the latest dev3000 log in temp dir
+          tempDir="/tmp"
+          logPattern="${tempDir}/dev3000-logs/dev3000-*.log"
+          if ls $logPattern &> /dev/null; then
+            latestLog=$(ls -t $logPattern | head -n 1)
+            echo "Found log file: $latestLog"
+            echo "--- LOG CONTENTS ---"
+            cat "$latestLog"
+            echo "--- END LOG ---"
+          else
+            echo "No dev3000 log file found in $tempDir/dev3000-logs/"
+          fi
