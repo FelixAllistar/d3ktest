@@ -22,6 +22,9 @@ jobs:
       - name: Install pnpm
         run: npm install -g pnpm
 
+      - name: Setup pnpm
+        run: pnpm setup
+
       - name: Install app dependencies
         run: pnpm install
 
