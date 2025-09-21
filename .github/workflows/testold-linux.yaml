@@ -27,10 +27,10 @@ jobs:
       - name: Install app dependencies
         run: pnpm install
 
-       - name: Install dev3000 globally (original version)
+      - name: Install dev3000 globally (original version)
         run: pnpm install -g dev3000
 
-       - name: Run dev3000 --servers-only and test startup
+      - name: Run dev3000 --servers-only and test startup
         shell: bash
         run: |
           # Start dev3000 in background and test startup on Linux

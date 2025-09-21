@@ -27,10 +27,10 @@ jobs:
       - name: Install app dependencies
         run: pnpm install
 
-       - name: Install dev3000 globally (original version)
+      - name: Install dev3000 globally (original version)
         run: pnpm install -g dev3000
 
-       - name: Run dev3000 --servers-only and capture output
+      - name: Run dev3000 --servers-only and capture output
         shell: pwsh
         run: |
           # Run dev3000 synchronously to capture all stdout/stderr
