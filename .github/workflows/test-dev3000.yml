@@ -1,0 +1,68 @@
+name: Test dev3000 on Windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-original:
+    name: Test Original dev3000
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'  # Match your local Node version; dev3000 works with recent ones
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install app dependencies
+        run: pnpm install
+
+      - name: Install dev3000 globally (original version)
+        run: pnpm install -g dev3000  # Pulls the official version from npm
+
+      - name: Run dev3000 and test startup
+        shell: pwsh  # Use PowerShell for Windows compatibility
+        run: |
+          # Start dev3000 in background (it launches Next.js dev on port 3000, MCP on 3684, and browser via Playwright)
+          Start-Process -NoNewWindow dev3000
+          # Wait 30 seconds for startup (adjust if your bug takes longer to appear)
+          Start-Sleep -Seconds 30
+          # Check if MCP server is running (simple health check; customize for your bug)
+          Invoke-WebRequest -Uri http://localhost:3684/logs -Method Head -UseBasicParsing
+          # If it reaches here without error, startup succeeded; otherwise, the step fails
+
+  test-fixed:
+    name: Test Your Fixed dev3000
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.8.0'
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install app dependencies
+        run: pnpm install
+
+      - name: Install dev3000 globally (your fixed version)
+        run: pnpm install -g github:FelixAllistar/dev3000#main
+
+      - name: Run dev3000 and test startup
+        shell: pwsh
+        run: |
+          Start-Process -NoNewWindow dev3000
+          Start-Sleep -Seconds 30
+          Invoke-WebRequest -Uri http://localhost:3684/logs -Method Head -UseBasicParsing

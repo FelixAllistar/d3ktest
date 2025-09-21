@@ -1,0 +1,75 @@
+name: Test dev3000 Bug on Windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  reproduce-bug:
+    name: Reproduce lsof Bug on Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install app dependencies
+        run: pnpm install
+
+      - name: Install dev3000 globally (original version)
+        run: pnpm install -g dev3000
+
+      - name: Run dev3000 and capture output
+        shell: pwsh
+        run: |
+          # Run dev3000 synchronously to capture all stdout/stderr
+          # It should fail quickly due to lsof issues, printing the expected messages
+          dev3000
+        continue-on-error: true  # Let the job continue even if dev3000 exits with error, so we can check logs
+
+      - name: Check for log file and display contents
+        shell: pwsh
+        if: always()  # Run even if previous step failed
+        run: |
+          # Find the latest dev3000 log in temp dir (Windows uses $env:TEMP)
+          $tempDir = $env:TEMP
+          $logPattern = "${tempDir}\dev3000-logs\dev3000-*.log"
+          $latestLog = Get-ChildItem -Path $logPattern -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if ($latestLog) {
+            Write-Output "Found log file: $($latestLog.FullName)"
+            Write-Output "--- LOG CONTENTS ---"
+            Get-Content $latestLog.FullName
+            Write-Output "--- END LOG ---"
+            
+            # Check for specific error indicators in log or output (for confirmation)
+            $logContent = Get-Content $latestLog.FullName -Raw
+            if ($logContent -match "kill: not enough arguments" -or $logContent -match "dev3000 exited due to server failure") {
+              Write-Output "✅ Bug confirmed: lsof-related failure detected in log."
+            } else {
+              Write-Output "❌ No expected bug indicators found in log."
+            }
+          } else {
+            Write-Output "No dev3000 log file found in $tempDir\dev3000-logs\"
+          }
+
+      - name: Additional health check (should fail due to bug)
+        shell: pwsh
+        if: always()
+        run: |
+          # Optional: Try to check MCP server after dev3000 run (will fail if shutdown hung or incomplete)
+          # But since dev3000 exits, this might just timeout or 404
+          try {
+            Invoke-WebRequest -Uri http://localhost:3684/logs -Method Head -UseBasicParsing -TimeoutSec 5
+            Write-Output "MCP server check passed (unexpected if bug is active)"
+          } catch {
+            Write-Output "MCP server check failed as expected due to bug: $_"
+          }
