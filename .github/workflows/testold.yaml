@@ -28,7 +28,7 @@ jobs:
         run: pnpm install
 
        - name: Install d3k globally (original version)
-        run: pnpm install -g dev3000
+        run: pnpm install -g d3k
 
        - name: Run d3k and capture output
         shell: pwsh
