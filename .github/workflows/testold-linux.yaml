@@ -1,0 +1,76 @@
+name: Test dev3000 on Linux
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  reproduce-bug:
+    name: Test dev3000 on Linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Install app dependencies
+        run: pnpm install
+
+      - name: Install dev3000 globally (original version)
+        run: pnpm install -g dev3000
+
+      - name: Run dev3000 and capture output
+        shell: bash
+        run: |
+          # Run dev3000 synchronously to capture all stdout/stderr
+          # It should run successfully on Linux with lsof available
+          dev3000
+        continue-on-error: true  # Let the job continue even if dev3000 exits with error, so we can check logs
+
+      - name: Check for log file and display contents
+        shell: bash
+        if: always()  # Run even if previous step failed
+        run: |
+          # Find the latest dev3000 log in temp dir (Linux uses /tmp)
+          tempDir="/tmp"
+          logPattern="${tempDir}/dev3000-logs/dev3000-*.log"
+          if ls $logPattern &> /dev/null; then
+            latestLog=$(ls -t $logPattern | head -n 1)
+            echo "Found log file: $latestLog"
+            echo "--- LOG CONTENTS ---"
+            cat "$latestLog"
+            echo "--- END LOG ---"
+
+            # Check for specific error indicators in log or output (for confirmation)
+            if grep -q "kill: not enough arguments\|dev3000 exited due to server failure" "$latestLog"; then
+              echo "✅ Bug confirmed: lsof-related failure detected in log."
+            else
+              echo "❌ No expected bug indicators found in log."
+            fi
+          else
+            echo "No dev3000 log file found in $tempDir/dev3000-logs/"
+          fi
+
+      - name: Additional health check (should pass on Linux)
+        shell: bash
+        if: always()
+        run: |
+          # Try to check MCP server after dev3000 run (should pass if running)
+          # But since dev3000 may exit, this might timeout or 404
+          timeout 5s curl -f -s http://localhost:3684/logs || echo "MCP server check failed: $?"
+          if curl -f -s http://localhost:3684/logs &> /dev/null; then
+            echo "MCP server check passed (expected on Linux)"
+          else
+            echo "MCP server check failed as expected due to shutdown: $?"
+          fi
