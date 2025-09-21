@@ -34,9 +34,9 @@ jobs:
         shell: bash
         run: |
           # Start dev3000 in background and test startup on Linux
-          dev3000 --servers-only > dev3000_output.log 2>&1 &
+          d3k --servers-only > d3k_output.log 2>&1 &
           DEV_PID=$!
-          echo "dev3000 PID: $DEV_PID"
+          echo "d3k PID: $DEV_PID"
           
           # Wait for startup
           sleep 30
@@ -51,8 +51,8 @@ jobs:
           fi
           
           # Display output
-          echo "--- dev3000 OUTPUT ---"
-          cat dev3000_output.log
+          echo "--- d3k OUTPUT ---"
+          cat d3k_output.log
           echo "--- END OUTPUT ---"
           
           # Gracefully stop dev3000

@@ -35,7 +35,7 @@ jobs:
         run: |
           # Run dev3000 synchronously to capture all stdout/stderr
           # It should fail quickly due to lsof issues, printing the expected messages
-          dev3000 --servers-only
+          d3k --servers-only
         continue-on-error: true  # Let the job continue even if dev3000 exits with error, so we can check logs
 
       - name: Check for log file and display contents
