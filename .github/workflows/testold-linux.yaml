@@ -27,16 +27,16 @@ jobs:
       - name: Install app dependencies
         run: pnpm install
 
-      - name: Install dev3000 globally (original version)
+       - name: Install d3k globally (original version)
         run: pnpm install -g dev3000
 
-      - name: Run dev3000 and test startup
+       - name: Run d3k and test startup
         shell: bash
         run: |
           # Start dev3000 in background and test startup on Linux
-          dev3000 > dev3000_output.log 2>&1 &
+          d3k --servers-only > d3k_output.log 2>&1 &
           DEV_PID=$!
-          echo "dev3000 PID: $DEV_PID"
+          echo "d3k PID: $DEV_PID"
           
           # Wait for startup
           sleep 30
@@ -51,7 +51,7 @@ jobs:
           fi
           
           # Display output
-          echo "--- dev3000 OUTPUT ---"
+          echo "--- d3k OUTPUT ---"
           cat dev3000_output.log
           echo "--- END OUTPUT ---"
           

@@ -27,15 +27,15 @@ jobs:
       - name: Install app dependencies
         run: pnpm install
 
-      - name: Install dev3000 globally (original version)
+       - name: Install d3k globally (original version)
         run: pnpm install -g dev3000
 
-      - name: Run dev3000 and capture output
+       - name: Run d3k and capture output
         shell: pwsh
         run: |
           # Run dev3000 synchronously to capture all stdout/stderr
           # It should fail quickly due to lsof issues, printing the expected messages
-          dev3000
+          d3k --servers-only
         continue-on-error: true  # Let the job continue even if dev3000 exits with error, so we can check logs
 
       - name: Check for log file and display contents
