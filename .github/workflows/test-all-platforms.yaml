@@ -20,13 +20,37 @@ jobs:
           version: latest
       - run: pnpm install
       - run: pnpm install -g dev3000
-      - name: Test dev3000 (expect failure)
+      - name: Test dev3000 startup
         shell: pwsh
-        run: d3k --servers-only
+        run: |
+          Start-Process -FilePath "d3k" -ArgumentList "--servers-only" -RedirectStandardOutput "d3k_output.log" -RedirectStandardError "d3k_error.log" -NoNewWindow -PassThru | Out-File -FilePath "d3k_pid.txt"
+          $devPid = Get-Content "d3k_pid.txt" | Select-Object -First 1
+          $devPid = [int]($devPid -split '\s+')[6]  # Extract PID from process info
+          Write-Output "d3k PID: $devPid"
+          Start-Sleep -Seconds 30
+
+          try {
+            $response = Invoke-WebRequest -Uri "http://localhost:3684/logs" -Method GET -TimeoutSec 5 -ErrorAction Stop
+            Write-Output "✅ MCP server started successfully on Windows"
+          } catch {
+            Write-Output "❌ MCP server failed to start"
+            if (Test-Path "d3k_output.log") { Get-Content "d3k_output.log" }
+            if (Test-Path "d3k_error.log") { Get-Content "d3k_error.log" }
+            exit 1
+          }
+
+          Write-Output "--- d3k OUTPUT ---"
+          if (Test-Path "d3k_output.log") { Get-Content "d3k_output.log" }
+          Write-Output "--- d3k ERROR ---"
+          if (Test-Path "d3k_error.log") { Get-Content "d3k_error.log" }
+          Write-Output "--- END OUTPUT ---"
+
+          Stop-Process -Id $devPid -Force -ErrorAction SilentlyContinue
       - name: Check logs
         if: always()
         shell: pwsh
         run: |
+          $logFound = $false
           $tempDir = $env:TEMP
           $logPattern = "${tempDir}\dev3000-logs\dev3000-*.log"
           $latestLog = Get-ChildItem -Path $logPattern -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -35,15 +59,12 @@ jobs:
             Write-Output "--- LOG CONTENTS ---"
             Get-Content $latestLog.FullName
             Write-Output "--- END LOG ---"
-            
-            $logContent = Get-Content $latestLog.FullName -Raw
-            if ($logContent -match "kill: not enough arguments" -or $logContent -match "dev3000 exited due to server failure") {
-              Write-Output "✅ Bug confirmed: lsof-related failure detected in log."
-            } else {
-              Write-Output "❌ No expected bug indicators found in log."
-            }
-          } else {
-            Write-Output "No dev3000 log file found in $tempDir\dev3000-logs\"
+            $logFound = $true
+          }
+          if (-not $logFound) {
+            Write-Output "No dev3000 log file found"
+            Write-Output "Searching for dev3000 log directories..."
+            Get-ChildItem -Path $env:TEMP -Recurse -Directory -Name "*dev3000*" -ErrorAction SilentlyContinue
           }
 
   test-unix:
