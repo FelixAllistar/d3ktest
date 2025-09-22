@@ -160,7 +160,8 @@ jobs:
         if: always()
         run: |
           logFound=false
-          for logDir in "/tmp/dev3000-logs" "/var/log/dev3000"; do
+          # Check common log locations and macOS-specific temp directories
+          for logDir in "/tmp/dev3000-logs" "/var/log/dev3000" "$TMPDIR/dev3000-logs" "/var/folders/*/T/dev3000-logs"; do
             logPattern="${logDir}/dev3000-*.log"
             if ls $logPattern &> /dev/null; then
               latestLog=$(ls -t $logPattern | head -n 1)
@@ -174,5 +175,6 @@ jobs:
           done
           if [ "$logFound" = false ]; then
             echo "No dev3000 log file found"
-            find /tmp /var/log -name "*dev3000*" -type d 2>/dev/null || echo "No dev3000 log directories found"
+            echo "Searching for dev3000 log directories..."
+            find /tmp /var/log /var/folders -name "*dev3000*" -type d 2>/dev/null || echo "No dev3000 log directories found"
           fi
