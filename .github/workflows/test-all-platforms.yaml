@@ -42,10 +42,11 @@ jobs:
           if ($quickFail) {
             # Job completed within 10 seconds - likely failed with ENOENT
             $output = Receive-Job -Job $job
-            Write-Output "✅ d3k failed quickly as expected on Windows (likely ENOENT due to missing lsof)"
+            Write-Output "❌ d3k failed quickly on Windows (likely ENOENT due to missing lsof)"
             Write-Output "--- QUICK FAILURE OUTPUT ---"
             Write-Output $output
             Write-Output "--- END OUTPUT ---"
+            exit 1
           } else {
             # Job still running after 10 seconds - it got past lsof check!
             Write-Output "🎉 d3k running longer than 10 seconds - lsof issue appears to be fixed!"
