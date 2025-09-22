@@ -23,10 +23,9 @@ jobs:
       - name: Test dev3000 startup
         shell: pwsh
         run: |
-          Start-Process -FilePath "d3k" -ArgumentList "--servers-only" -RedirectStandardOutput "d3k_output.log" -RedirectStandardError "d3k_error.log" -NoNewWindow -PassThru | Out-File -FilePath "d3k_pid.txt"
-          $devPid = Get-Content "d3k_pid.txt" | Select-Object -First 1
-          $devPid = [int]($devPid -split '\s+')[6]  # Extract PID from process info
-          Write-Output "d3k PID: $devPid"
+          $job = Start-Job -ScriptBlock { d3k --servers-only }
+          $devPid = $job.Id
+          Write-Output "d3k Job ID: $devPid"
           Start-Sleep -Seconds 30
 
           try {
@@ -34,18 +33,17 @@ jobs:
             Write-Output "✅ MCP server started successfully on Windows"
           } catch {
             Write-Output "❌ MCP server failed to start"
-            if (Test-Path "d3k_output.log") { Get-Content "d3k_output.log" }
-            if (Test-Path "d3k_error.log") { Get-Content "d3k_error.log" }
+            Write-Output "Error: $($_.Exception.Message)"
             exit 1
           }
 
-          Write-Output "--- d3k OUTPUT ---"
-          if (Test-Path "d3k_output.log") { Get-Content "d3k_output.log" }
-          Write-Output "--- d3k ERROR ---"
-          if (Test-Path "d3k_error.log") { Get-Content "d3k_error.log" }
+          Write-Output "--- d3k JOB OUTPUT ---"
+          $jobOutput = Receive-Job -Job $job
+          Write-Output $jobOutput
           Write-Output "--- END OUTPUT ---"
 
-          Stop-Process -Id $devPid -Force -ErrorAction SilentlyContinue
+          Stop-Job -Job $job -ErrorAction SilentlyContinue
+          Remove-Job -Job $job -ErrorAction SilentlyContinue
       - name: Check logs
         if: always()
         shell: pwsh
