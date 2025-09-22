@@ -23,23 +23,59 @@ jobs:
       - name: Test dev3000 startup
         shell: pwsh
         run: |
-          Write-Output "Starting d3k --servers-only..."
-          try {
-            & d3k --servers-only 2>&1 | Tee-Object -FilePath "d3k_output.log"
-            Write-Output "❌ d3k unexpectedly succeeded - should have failed with ENOENT on Windows"
-            exit 1
-          } catch {
-            Write-Output "✅ d3k failed as expected on Windows (likely ENOENT due to missing lsof)"
-            Write-Output "Error: $($_.Exception.Message)"
+          Write-Output "Starting d3k --servers-only with conditional testing..."
+
+          # Start d3k in background job
+          $job = Start-Job -ScriptBlock {
+            try {
+              d3k --servers-only 2>&1
+            } catch {
+              Write-Error $_.Exception.Message
+            }
           }
 
-          Write-Output "--- d3k OUTPUT ---"
-          if (Test-Path "d3k_output.log") {
-            Get-Content "d3k_output.log"
+          Write-Output "d3k Job ID: $($job.Id)"
+
+          # Wait up to 10 seconds to see if it fails quickly (expected ENOENT)
+          $quickFail = Wait-Job -Job $job -Timeout 10
+
+          if ($quickFail) {
+            # Job completed within 10 seconds - likely failed with ENOENT
+            $output = Receive-Job -Job $job
+            Write-Output "✅ d3k failed quickly as expected on Windows (likely ENOENT due to missing lsof)"
+            Write-Output "--- QUICK FAILURE OUTPUT ---"
+            Write-Output $output
+            Write-Output "--- END OUTPUT ---"
           } else {
-            Write-Output "No output log file created"
+            # Job still running after 10 seconds - it got past lsof check!
+            Write-Output "🎉 d3k running longer than 10 seconds - lsof issue appears to be fixed!"
+            Write-Output "Testing HTTP endpoint like other platforms..."
+
+            # Wait another 20 seconds for full 30-second test
+            Start-Sleep -Seconds 20
+
+            try {
+              $response = Invoke-WebRequest -Uri "http://localhost:3684/logs" -Method GET -TimeoutSec 5 -ErrorAction Stop
+              Write-Output "✅ MCP server started successfully on Windows"
+            } catch {
+              Write-Output "❌ MCP server failed to start after 30 seconds"
+              Write-Output "Error: $($_.Exception.Message)"
+              $output = Receive-Job -Job $job
+              Write-Output "--- d3k OUTPUT ---"
+              Write-Output $output
+              Write-Output "--- END OUTPUT ---"
+              exit 1
+            }
+
+            $output = Receive-Job -Job $job
+            Write-Output "--- d3k OUTPUT ---"
+            Write-Output $output
+            Write-Output "--- END OUTPUT ---"
           }
-          Write-Output "--- END OUTPUT ---"
+
+          # Cleanup
+          Stop-Job -Job $job -ErrorAction SilentlyContinue
+          Remove-Job -Job $job -ErrorAction SilentlyContinue
       - name: Check logs
         if: always()
         shell: pwsh
