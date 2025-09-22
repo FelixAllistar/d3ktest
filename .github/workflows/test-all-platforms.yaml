@@ -7,117 +7,140 @@ on:
     branches: [main]
 
 jobs:
-  test-windows:
-    name: Windows Latest
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: latest
-      - run: pnpm install
-      - run: pnpm install -g dev3000
-      - name: Test dev3000 (expect failure)
-        shell: pwsh
-        run: d3k --servers-only
-      - name: Check logs
-        if: always()
-        shell: pwsh
-        run: |
-          $tempDir = $env:TEMP
-          $logPattern = "${tempDir}\dev3000-logs\dev3000-*.log"
-          $latestLog = Get-ChildItem -Path $logPattern -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if ($latestLog) {
-            Write-Output "Found log file: $($latestLog.FullName)"
-            Write-Output "--- LOG CONTENTS ---"
-            Get-Content $latestLog.FullName
-            Write-Output "--- END LOG ---"
-            
-            $logContent = Get-Content $latestLog.FullName -Raw
-            if ($logContent -match "kill: not enough arguments" -or $logContent -match "dev3000 exited due to server failure") {
-              Write-Output "✅ Bug confirmed: lsof-related failure detected in log."
-            } else {
-              Write-Output "❌ No expected bug indicators found in log."
-            }
-          } else {
-            Write-Output "No dev3000 log file found in $tempDir\dev3000-logs\"
-          }
-
-  test-unix:
-    name: ${{ matrix.platform }}
+  test:
+    name: ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: "Ubuntu Latest"
+          - name: Windows Latest
+            runner: windows-latest
+            shell: pwsh
+            expect_failure: true
+            setup_node: true
+            log_dirs: "$env:TEMP\\dev3000-logs"
+          - name: Ubuntu Latest
             runner: ubuntu-latest
-          - platform: "Alpine Linux"
+            shell: bash
+            expect_failure: false
+            setup_node: true
+            log_dirs: "/tmp/dev3000-logs,/var/log/dev3000"
+          - name: Alpine Linux
             runner: ubuntu-latest
             container: alpine:latest
             deps: "apk update && apk add --no-cache nodejs npm git bash curl lsof"
-          - platform: "CentOS Stream 9"
+            shell: bash
+            expect_failure: false
+            setup_node: false
+            log_dirs: "/tmp/dev3000-logs,/var/log/dev3000"
+          - name: CentOS Stream 9
             runner: ubuntu-latest
             container: quay.io/centos/centos:stream9
             deps: "dnf update -y && dnf install -y git lsof curl --allowerasing && curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && dnf install -y nodejs"
+            shell: bash
+            expect_failure: false
+            setup_node: false
+            log_dirs: "/tmp/dev3000-logs,/var/log/dev3000"
 
     steps:
       - name: Install system dependencies
         if: matrix.deps
         run: ${{ matrix.deps }}
+
       - uses: actions/checkout@v4
+
       - name: Set up Node.js
-        if: "!matrix.container"
+        if: matrix.setup_node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - uses: pnpm/action-setup@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
         with:
-          version: latest
+          version: 8  # Pin for reproducibility; change to 'latest' if preferred
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "pnpm_store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.pnpm_store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
+
       - run: pnpm install
+
       - run: pnpm install -g dev3000
+
       - name: Test dev3000 startup
+        continue-on-error: ${{ matrix.expect_failure }}
         run: |
-          d3k --servers-only > d3k_output.log 2>&1 &
-          DEV_PID=$!
-          echo "d3k PID: $DEV_PID"
-          sleep 30
-          
-          if curl -f -s http://localhost:3684/logs > /dev/null 2>&1 || wget -q --spider http://localhost:3684/logs 2>/dev/null; then
-            echo "✅ MCP server started successfully on ${{ matrix.platform }}"
-          else
-            echo "❌ MCP server failed to start"
+          if (${{ matrix.expect_failure }}) {
+            # Synchronous run for Windows (expect failure)
+            d3k --servers-only
+          } else {
+            # Background run for Unix (expect success)
+            d3k --servers-only > d3k_output.log 2>&1 &
+            DEV_PID=$!
+            echo "d3k PID: $DEV_PID"
+            
+            # Poll for server up (max 30s, check every 5s)
+            for i in {1..6}; do
+              if curl -f -s http://localhost:3684/logs > /dev/null 2>&1 || wget -q --spider http://localhost:3684/logs 2>/dev/null; then
+                echo "✅ MCP server started successfully on ${{ matrix.name }}"
+                break
+              fi
+              sleep 5
+            done
+            
+            if [ $i -eq 6 ]; then
+              echo "❌ MCP server failed to start after 30s"
+              cat d3k_output.log
+              exit 1
+            fi
+            
+            echo "--- d3k OUTPUT ---"
             cat d3k_output.log
-            exit 1
-          fi
-          
-          echo "--- d3k OUTPUT ---"
-          cat d3k_output.log
-          echo "--- END OUTPUT ---"
-          
-          kill $DEV_PID
-          wait $DEV_PID || true
+            echo "--- END OUTPUT ---"
+            
+            kill $DEV_PID
+            wait $DEV_PID || true
+          }
+
       - name: Check logs
         if: always()
         run: |
-          logFound=false
-          for logDir in "/tmp/dev3000-logs" "/var/log/dev3000"; do
-            logPattern="${logDir}/dev3000-*.log"
-            if ls $logPattern &> /dev/null; then
-              latestLog=$(ls -t $logPattern | head -n 1)
-              echo "Found log file: $latestLog"
-              echo "--- LOG CONTENTS ---"
-              cat "$latestLog"
-              echo "--- END LOG ---"
-              logFound=true
+          $logDirs = "${{ matrix.log_dirs }}".Split(',')
+          $logFound = $false
+          foreach ($logDir in $logDirs) {
+            $logPattern = "$logDir\dev3000-*.log"  # Use \ for Windows paths
+            $latestLog = Get-ChildItem -Path $logPattern -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($latestLog) {
+              Write-Output "Found log file: $($latestLog.FullName)"
+              Write-Output "--- LOG CONTENTS ---"
+              Get-Content $latestLog.FullName
+              Write-Output "--- END LOG ---"
+              $logFound = $true
+              
+              $logContent = Get-Content $latestLog.FullName -Raw
+              if (${{ matrix.expect_failure }} -and ($logContent -match "kill: not enough arguments" -or $logContent -match "dev3000 exited due to server failure")) {
+                Write-Output "✅ Bug confirmed: lsof-related failure detected in log."
+              } elseif (${{ !matrix.expect_failure }} -and ($logContent -notmatch "error|failure")) {  # Adjust pattern for success check
+                Write-Output "✅ No errors in log."
+              } else {
+                Write-Output "❌ Expected indicators not found in log."
+              }
               break
-            fi
-          done
-          if [ "$logFound" = false ]; then
-            echo "No dev3000 log file found"
-            find /tmp /var/log -name "*dev3000*" -type d 2>/dev/null || echo "No dev3000 log directories found"
-          fi
+            }
+          }
+          if (-not $logFound) {
+            Write-Output "No dev3000 log file found in ${{ matrix.log_dirs }}"
+          }
