@@ -121,3 +121,58 @@ jobs:
             echo "No dev3000 log file found"
             find /tmp /var/log -name "*dev3000*" -type d 2>/dev/null || echo "No dev3000 log directories found"
           fi
+
+  test-macos:
+    name: macOS Latest
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+      - run: pnpm install
+      - run: pnpm install -g dev3000
+      - name: Test dev3000 startup
+        run: |
+          d3k --servers-only > d3k_output.log 2>&1 &
+          DEV_PID=$!
+          echo "d3k PID: $DEV_PID"
+          sleep 30
+
+          if curl -f -s http://localhost:3684/logs > /dev/null 2>&1; then
+            echo "✅ MCP server started successfully on macOS"
+          else
+            echo "❌ MCP server failed to start"
+            cat d3k_output.log
+            exit 1
+          fi
+
+          echo "--- d3k OUTPUT ---"
+          cat d3k_output.log
+          echo "--- END OUTPUT ---"
+
+          kill $DEV_PID
+          wait $DEV_PID || true
+      - name: Check logs
+        if: always()
+        run: |
+          logFound=false
+          for logDir in "/tmp/dev3000-logs" "/var/log/dev3000"; do
+            logPattern="${logDir}/dev3000-*.log"
+            if ls $logPattern &> /dev/null; then
+              latestLog=$(ls -t $logPattern | head -n 1)
+              echo "Found log file: $latestLog"
+              echo "--- LOG CONTENTS ---"
+              cat "$latestLog"
+              echo "--- END LOG ---"
+              logFound=true
+              break
+            fi
+          done
+          if [ "$logFound" = false ]; then
+            echo "No dev3000 log file found"
+            find /tmp /var/log -name "*dev3000*" -type d 2>/dev/null || echo "No dev3000 log directories found"
+          fi
